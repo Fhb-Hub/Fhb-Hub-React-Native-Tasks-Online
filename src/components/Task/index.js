@@ -32,16 +32,16 @@ export default props => {
         <ListItem.Swipeable style={styles.listItem}
             leftContent={
                 <Button
-                    title="Edit"
-                    icon={{ name: 'edit', color: 'white' }}
-                    buttonStyle={{ minHeight: '100%' }}
+                    title="Deletar"
+                    icon={{ name: 'delete', color: 'white' }}
+                    buttonStyle={{ minHeight: '100%', backgroundColor: (props.buttonColor) }}
                     onPress={() => props.onDelete && props.onDelete(props.id)} />
             }
             rightContent={
                 <Button
-                    title="Delete"
+                    title="Deletar"
                     icon={{ name: 'delete', color: 'white' }}
-                    buttonStyle={{ minHeight: '100%', backgroundColor: '#e00' }}
+                    buttonStyle={{ minHeight: '100%', backgroundColor: (props.buttonColor) }}
                     onPress={() => props.onDelete && props.onDelete(props.id)} />
             }>
             <ListItem.Content >

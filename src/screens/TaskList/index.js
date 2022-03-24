@@ -9,15 +9,22 @@ import {
     Alert
 } from 'react-native'
 
+import AsyncStorage from "@react-native-community/async-storage"
+import Icon from 'react-native-vector-icons/FontAwesome'
+import axios from 'axios'
 import moment from 'moment'
 import 'moment/locale/pt-br'
-import Icon from 'react-native-vector-icons/FontAwesome'
-import AsyncStorage from "@react-native-community/async-storage"
 
 import todayImage from './../../../assets/imgs/today.jpg'
-import styles from './style'
+import tomorrowImage from './../../../assets/imgs/tomorrow.jpg'
+import weekImage from './../../../assets/imgs/week.jpg'
+import monthImage from './../../../assets/imgs/month.jpg'
+
+import { server, showError } from '../../common'
+import commonStyles from '../../commonStyles'
 import Task from './../../components/Task'
 import AddTask from './../AddTask'
+import styles from './style'
 
 const initialState = {
     showDoneTasks: true,
@@ -32,41 +39,25 @@ export default class TaskList extends Component {
     }
 
     componentDidMount = async () => {
-        const stateString = await AsyncStorage.getItem('tasksState') 
-        const state = JSON.parse(stateString) || initialState
-        this.setState(state, this.filterTasks)
-    }
-    
-    toggleFilter = () => {
-        this.setState(
-            { showDoneTasks: !this.state.showDoneTasks },
-            this.filterTasks)
+        const stateString = await AsyncStorage.getItem('tasksState')
+        const savedState = JSON.parse(stateString) || initialState
+        this.setState({
+            showDoneTasks: savedState.showDoneTasks
+        }, this.filterTasks)
+        this.loadTask()
     }
 
-    deleteTask = id => {
-        const tasks = this.state.tasks.filter(item => item.id !== id) 
-        this.setState({tasks}, this.filterTasks)
-    }
-
-    addTask = newTask => {
-        const tasks = [...this.state.tasks]
-
-        if (!newTask.desc || !newTask.desc.trim()) {
-            Alert.alert('Dados Inválidos', 'Descrição não informada!')
-            return
+    loadTask = async () => {
+        try {
+            const maxDate = moment()
+                .add({ days: this.props.daysAhead })
+                .format('YYYY-MM-DD 23:59:59')
+            const res = await axios.get(`${server}/tasks?date=${maxDate}`)
+            this.setState({ tasks: res.data }, this.filterTasks)
+        } catch (e) {
+            showError(e)
         }
-
-        tasks.push({
-            id: Math.random(),
-            desc: newTask.desc,
-            estimateAt: newTask.date,
-            doneAt: null
-        })
-
-        this.setState({ tasks, showAddTask: false }, this.filterTasks)
     }
-
-    isPending = task => (task.doneAt === null)
 
     filterTasks = () => {
         this.setState({
@@ -74,17 +65,72 @@ export default class TaskList extends Component {
                 ? [...this.state.tasks]
                 : this.state.tasks.filter(this.isPending)
         })
-        AsyncStorage.setItem('tasksState', JSON.stringify(this.state) )
+        AsyncStorage.setItem(
+            'tasksState',
+            JSON.stringify({ showDoneTasks: this.state.showDoneTasks })
+        )
     }
 
-    toggleCheck = taskId => {
-        const tasks = [...this.state.tasks]
-        tasks.forEach(task => {
-            if (task.id === taskId) {
-                task.doneAt = task.doneAt ? null : new Date()
-            }
-        })
-        this.setState({ tasks }, this.filterTasks)
+    isPending = task => (task.doneAt === null)
+
+    toggleFilter = () => {
+        this.setState(
+            { showDoneTasks: !this.state.showDoneTasks },
+            this.filterTasks)
+    }
+
+    addTask = async newTask => {
+        if (!newTask.desc || !newTask.desc.trim()) {
+            Alert.alert('Dados Inválidos', 'Descrição não informada!')
+            return
+        }
+
+        try {
+            await axios.post(`${server}/tasks`, {
+                desc: newTask.desc,
+                estimateAt: newTask.date
+            })
+
+            this.setState({ showAddTask: false }, this.loadTask)
+        } catch (e) {
+            showError(e)
+        }
+    }
+
+    deleteTask = async taskId => {
+        try {
+            await axios.delete(`${server}/tasks/${taskId}`)
+            this.loadTask()
+        } catch (e) {
+            showError(e)
+        }
+    }
+
+    toggleCheck = async taskId => {
+        try {
+            await axios.put(`${server}/tasks/${taskId}/toggle`)
+            this.loadTask()
+        } catch (e) {
+            showError(e)
+        }
+    }
+
+    getImage = () => {
+        switch (this.props.daysAhead) {
+            case 0: return todayImage
+            case 1: return tomorrowImage
+            case 7: return weekImage
+            default: return monthImage
+        }
+    }
+
+    getColor = () => {
+        switch (this.props.daysAhead) {
+            case 0: return commonStyles.colors.today
+            case 1: return commonStyles.colors.tomorrow
+            case 7: return commonStyles.colors.week
+            default: return commonStyles.colors.month
+        }
     }
 
     render() {
@@ -94,17 +140,21 @@ export default class TaskList extends Component {
                 <AddTask isVisible={this.state.showAddTask}
                     onCalcel={() => this.setState({ showAddTask: false })}
                     onSave={this.addTask} />
-                <ImageBackground source={todayImage} style={styles.background}>
+                <ImageBackground source={this.getImage()} style={styles.background}>
                     <View style={styles.iconBar}>
+                        <TouchableOpacity onPress={this.props.navigation.openDrawer}>
+                            <Icon name='bars'
+                                size={20}
+                                color="#fff" />
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={this.toggleFilter}>
-                            <Icon
-                                name={this.state.showDoneTasks ? "eye" : "eye-slash"}
+                            <Icon name={this.state.showDoneTasks ? "eye" : "eye-slash"}
                                 size={20}
                                 color="#fff" />
                         </TouchableOpacity>
                     </View>
                     <View style={styles.titleBar}>
-                        <Text style={styles.title}>Hoje</Text>
+                        <Text style={styles.title}>{this.props.title}</Text>
                         <Text style={styles.subtitle}>{today}</Text>
                     </View>
                 </ImageBackground>
@@ -112,12 +162,15 @@ export default class TaskList extends Component {
                     <FlatList data={this.state.visibleTask}
                         keyExtractor={item => `${item.id}`}
                         renderItem={({ item }) =>
-                            <Task {...item} 
-                            onToggleCheck={this.toggleCheck} 
-                            onDelete={this.deleteTask}
-                            />} />
+                            <Task {...item}
+                                buttonColor={this.getColor()}
+                                onToggleCheck={this.toggleCheck}
+                                onDelete={this.deleteTask} />} />
                 </View>
-                <TouchableOpacity style={styles.addButton}
+                <TouchableOpacity style={[
+                    styles.addButton, {
+                        backgroundColor: this.getColor()
+                    }]}
                     activeOpacity={0.8}
                     onPress={() => this.setState({ showAddTask: true })}>
                     <Icon name="plus"
